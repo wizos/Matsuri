@@ -20,7 +20,6 @@
 package io.nekohasekai.sagernet.group
 
 import android.net.Uri
-import cn.hutool.json.*
 import com.github.shadowsocks.plugin.PluginOptions
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.*
@@ -39,10 +38,11 @@ import io.nekohasekai.sagernet.fmt.v2ray.V2RayConfig
 import io.nekohasekai.sagernet.fmt.v2ray.VMessBean
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
 import io.nekohasekai.sagernet.ktx.*
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import libcore.Libcore
 import org.ini4j.Ini
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 import org.yaml.snakeyaml.TypeDescription
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
@@ -55,7 +55,6 @@ object RawUpdater : GroupUpdater() {
         proxyGroup: ProxyGroup,
         subscription: SubscriptionBean,
         userInterface: GroupManager.Interface?,
-        httpClient: OkHttpClient,
         byUser: Boolean
     ) {
 
@@ -70,17 +69,18 @@ object RawUpdater : GroupUpdater() {
                 ?: error(app.getString(R.string.no_proxies_found_in_subscription))
         } else {
 
-            val response = httpClient.newCall(Request.Builder()
-                .url(subscription.link.toHttpUrl())
-                .header("User-Agent",
-                    subscription.customUserAgent.takeIf { it.isNotBlank() } ?: USER_AGENT)
-                .build()).execute().apply {
-                if (!isSuccessful) error("ERROR: HTTP $code\n\n${body?.string() ?: ""}")
-                if (body == null) error("ERROR: Empty response")
-            }
+            val response = Libcore.newHttpClient().apply {
+                trySocks5(DataStore.socksPort)
+            }.newRequest().apply {
+                setURL(subscription.link)
+                if (subscription.customUserAgent.isNotBlank()) {
+                    setUserAgent(subscription.customUserAgent)
+                } else {
+                    randomUserAgent()
+                }
+            }.execute()
 
-            Logs.d(response.toString())
-            proxies = parseRaw(response.body!!.string())
+            proxies = parseRaw(response.contentString)
                 ?: error(app.getString(R.string.no_proxies_found))
 
         }
@@ -100,7 +100,7 @@ object RawUpdater : GroupUpdater() {
         }
         proxies = proxiesMap.values.toList()
 
-        if (subscription.forceResolve) forceResolve(httpClient, proxies, proxyGroup.id)
+        if (subscription.forceResolve) forceResolve(proxies, proxyGroup.id)
 
         if (subscription.forceVMessAEAD) {
             proxies.filterIsInstance<VMessBean>().forEach { it.alterId = 0 }
@@ -400,9 +400,9 @@ object RawUpdater : GroupUpdater() {
         }
 
         try {
-            val json = JSONUtil.parse(text)
+            val json = JSONTokener(text).nextValue()
             return parseJSON(json)
-        } catch (ignored: JSONException) {
+        } catch (ignored: Exception) {
         }
 
         try {
@@ -452,31 +452,31 @@ object RawUpdater : GroupUpdater() {
         return beans
     }
 
-    fun parseJSON(json: JSON): List<AbstractBean> {
+    fun parseJSON(json: Any): List<AbstractBean> {
         val proxies = ArrayList<AbstractBean>()
 
         if (json is JSONObject) {
             when {
-                json.containsKey("protocol_param") -> {
+                json.has("protocol_param") -> {
                     return listOf(json.parseShadowsocksR())
                 }
-                json.containsKey("method") -> {
+                json.has("method") -> {
                     return listOf(json.parseShadowsocks())
                 }
-                json.containsKey("protocol") -> {
+                json.has("protocol") -> {
                     val v2rayConfig = gson.fromJson(
                         json.toString(), V2RayConfig.OutboundObject::class.java
                     ).apply { init() }
                     return parseOutbound(v2rayConfig)
                 }
-                json.containsKey("outbound") -> {
+                json.has("outbound") -> {
                     val v2rayConfig = gson.fromJson(
                         json.getJSONObject("outbound").toString(),
                         V2RayConfig.OutboundObject::class.java
                     ).apply { init() }
                     return parseOutbound(v2rayConfig)
                 }
-                json.containsKey("outbounds") -> {/*   val fakedns = json["fakedns"]
+                json.has("outbounds") -> {/*   val fakedns = json["fakedns"]
                        if (fakedns is JSONObject) {
                            json["fakedns"] = JSONArray().apply {
                                add(fakedns)
@@ -516,19 +516,19 @@ object RawUpdater : GroupUpdater() {
                      proxies.addAll(parseOutbound(it))
                  }*/
                 }
-                json.containsKey("remote_addr") -> {
+                json.has("remote_addr") -> {
                     return listOf(json.parseTrojanGo())
                 }
                 else -> json.forEach { _, it ->
-                    if (it is JSON) {
+                    if (isJsonObjectValid(it)) {
                         proxies.addAll(parseJSON(it))
                     }
                 }
             }
         } else {
             json as JSONArray
-            json.forEach {
-                if (it is JSON) {
+            json.forEach { _, it ->
+                if (isJsonObjectValid(it)) {
                     proxies.addAll(parseJSON(it))
                 }
             }

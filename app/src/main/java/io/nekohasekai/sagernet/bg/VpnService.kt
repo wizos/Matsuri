@@ -52,6 +52,7 @@ import kotlinx.coroutines.*
 import libcore.*
 import java.io.FileDescriptor
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.UnknownHostException
 import kotlin.coroutines.suspendCoroutine
 import android.net.VpnService as BaseVpnService
@@ -232,6 +233,8 @@ class VpnService : BaseVpnService(),
                 bypass = false
             }
 
+            val added = mutableListOf<String>()
+
             individual.apply {
                 // Allow Matsuri itself using VPN.
                 remove(packageName)
@@ -240,14 +243,19 @@ class VpnService : BaseVpnService(),
                 try {
                     if (bypass) {
                         builder.addDisallowedApplication(it)
-                        Logs.d("Add bypass: $it")
                     } else {
                         builder.addAllowedApplication(it)
-                        Logs.d("Add allow: $it")
                     }
+                    added.add(it)
                 } catch (ex: PackageManager.NameNotFoundException) {
                     Logs.w(ex)
                 }
+            }
+
+            if (bypass) {
+                Logs.d("Add bypass: ${added.joinToString(", ")}")
+            } else {
+                Logs.d("Add allow: ${added.joinToString(", ")}")
             }
         }
 
@@ -345,24 +353,7 @@ class VpnService : BaseVpnService(),
                 }
             }
         } else {
-            val underlyingNetwork = underlyingNetwork ?: error("upstream network not found")
-            val answer = try {
-                underlyingNetwork.getAllByName(domain)
-            } catch (e: UnknownHostException) {
-                error("unknown host")
-            }
-            val filtered = mutableListOf<String>()
-            when {
-                network.endsWith("4") -> for (address in answer) {
-                    address.hostAddress?.takeIf { Validator.isIpv4(it) }?.also { filtered.add(it) }
-                }
-                network.endsWith("6") -> for (address in answer) {
-                    address.hostAddress?.takeIf { Validator.isIpv6(it) }?.also { filtered.add(it) }
-                }
-                else -> filtered.addAll(answer.mapNotNull { it.hostAddress })
-            }
-            if (filtered.isEmpty()) error("unknown host")
-            return filtered.joinToString(",")
+            throw Exception("114514")
         }
     }
 

@@ -88,31 +88,22 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         val requireHttp = findPreference<SwitchPreference>(Key.REQUIRE_HTTP)!!
         val appendHttpProxy = findPreference<SwitchPreference>(Key.APPEND_HTTP_PROXY)!!
         val portHttp = findPreference<EditTextPreference>(Key.HTTP_PORT)!!
-        when {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.N -> {
-                requireHttp.remove()
-                appendHttpProxy.remove()
-                portHttp.setIcon(R.drawable.ic_baseline_http_24)
-                portHttp.onPreferenceChangeListener = reloadListener
+
+        portHttp.isEnabled = requireHttp.isChecked
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            appendHttpProxy.remove()
+            requireHttp.setOnPreferenceChangeListener { _, newValue ->
+                portHttp.isEnabled = newValue as Boolean
+                needReload()
+                true
             }
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> {
-                portHttp.isEnabled = requireHttp.isChecked
-                appendHttpProxy.remove()
-                requireHttp.setOnPreferenceChangeListener { _, newValue ->
-                    portHttp.isEnabled = newValue as Boolean
-                    needReload()
-                    true
-                }
-            }
-            else -> {
-                portHttp.isEnabled = requireHttp.isChecked
-                appendHttpProxy.isEnabled = requireHttp.isChecked
-                requireHttp.setOnPreferenceChangeListener { _, newValue ->
-                    portHttp.isEnabled = newValue as Boolean
-                    appendHttpProxy.isEnabled = newValue as Boolean
-                    needReload()
-                    true
-                }
+        } else {
+            appendHttpProxy.isEnabled = requireHttp.isChecked
+            requireHttp.setOnPreferenceChangeListener { _, newValue ->
+                portHttp.isEnabled = newValue as Boolean
+                appendHttpProxy.isEnabled = newValue as Boolean
+                needReload()
+                true
             }
         }
 
@@ -155,11 +146,16 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         val enableDnsRouting = findPreference<SwitchPreference>(Key.ENABLE_DNS_ROUTING)!!
         val enableFakeDns = findPreference<SwitchPreference>(Key.ENABLE_FAKEDNS)!!
 
-        directDns.isEnabled = !directDnsUseSystem.isChecked
-        directDnsUseSystem.setOnPreferenceChangeListener { _, newValue ->
-            directDns.isEnabled = !(newValue as Boolean)
-            needReload()
-            true
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            DataStore.directDnsUseSystem = false
+            directDnsUseSystem.remove()
+        } else {
+            directDns.isEnabled = !directDnsUseSystem.isChecked
+            directDnsUseSystem.setOnPreferenceChangeListener { _, newValue ->
+                directDns.isEnabled = !(newValue as Boolean)
+                needReload()
+                true
+            }
         }
 
         val requireTransproxy = findPreference<SwitchPreference>(Key.REQUIRE_TRANSPROXY)!!
